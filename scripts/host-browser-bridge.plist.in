@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mvms.host-browser-bridge</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON_BIN__</string>
+    <string>-u</string>
+    <string>__BRIDGE_SCRIPT__</string>
+    <string>--host</string>
+    <string>__BRIDGE_HOST__</string>
+    <string>--port</string>
+    <string>__BRIDGE_PORT__</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/private/tmp</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>MVMS_BROWSER_BRIDGE_KEY_FILE</key>
+    <string>__KEY_FILE__</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>ThrottleInterval</key>
+  <integer>2</integer>
+  <key>StandardOutPath</key>
+  <string>__LAUNCHD_LOG_FILE__</string>
+  <key>StandardErrorPath</key>
+  <string>__LAUNCHD_LOG_FILE__</string>
+</dict>
+</plist>

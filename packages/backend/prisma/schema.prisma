@@ -1,0 +1,810 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 用户与团队 ====================
+
+model Team {
+  id             String   @id @default(cuid())
+  name           String
+  plan           String   @default("free") // free/professional/enterprise/group
+  contactName    String?
+  contactPhone   String?
+  channelCode    String? // 渠道邀请码归属
+  dealerParentId String? // 总部-经销商: 经销商团队对应的总部团队
+  status         String   @default("active")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  users   User[]
+  members TeamMember[]
+
+  @@index([channelCode])
+}
+
+model User {
+  id          String    @id @default(cuid())
+  phone       String    @unique
+  password    String
+  name        String
+  avatar      String?
+  role        String    @default("content_editor") // super_admin/ops_lead/dealer/content_editor
+  teamId      String
+  team        Team      @relation(fields: [teamId], references: [id])
+  mfaEnabled  Boolean   @default(false)
+  status      String    @default("active")
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  refreshTokens RefreshToken[]
+  leadsAssigned Lead[]           @relation("LeadAssignee")
+  followUps     FollowUpRecord[]
+  tasksAssigned Task[]           @relation("TaskAssignee")
+  tasksCreated  Task[]           @relation("TaskCreator")
+  reviews       ReviewFlow[]     @relation("ReviewReviewer")
+  auditLogs     AuditLog[]
+  annotations   Annotation[]
+
+  @@index([teamId])
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  teamId   String
+  team     Team     @relation(fields: [teamId], references: [id])
+  userId   String
+  role     String   @default("content_editor")
+  joinedAt DateTime @default(now())
+
+  @@unique([teamId, userId])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique @db.VarChar(500)
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// ==================== 账号矩阵管理 (4.1) ====================
+
+model Region {
+  id        String            @id @default(cuid())
+  teamId    String
+  name      String // 省/市/区
+  parentId  String?
+  level     Int               @default(1) // 1省 2市 3区
+  createdAt DateTime          @default(now())
+  accounts  PlatformAccount[]
+
+  @@index([teamId])
+}
+
+model AccountGroup {
+  id        String            @id @default(cuid())
+  teamId    String
+  name      String
+  dimension String            @default("product") // region/product/department/dealer
+  createdAt DateTime          @default(now())
+  accounts  PlatformAccount[]
+
+  @@index([teamId])
+}
+
+model PlatformAccount {
+  id                    String        @id @default(cuid())
+  teamId                String
+  platform              String // douyin/video_account/kuaishou/xiaohongshu/bilibili/baijiahao
+  platformUid           String? // 平台真实账号 ID；浏览器扫码成功后提取
+  nickname              String
+  avatar                String?
+  authType              String        @default("cookie") // scan/cookie/oauth
+  credentials           String?       @db.LongText // AES-256-GCM 加密后的授权凭据 JSON / Cookie
+  status                String        @default("active") // active/expired/limited/banned
+  groupId               String?
+  group                 AccountGroup? @relation(fields: [groupId], references: [id])
+  regionId              String?
+  region                Region?       @relation(fields: [regionId], references: [id])
+  isDealer              Boolean       @default(false)
+  parentAccountId       String? // 总部-经销商: 所属总部账号
+  followerCount         Int           @default(0)
+  followerCountSyncedAt DateTime?
+  expiredAt             DateTime?
+  lastRefreshAt         DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  publishRecords PublishRecord[]
+  dataSnapshots  DataSnapshot[]
+  comments       Comment[]
+  messages       Message[]
+  leads          Lead[]
+
+  @@unique([teamId, platform, platformUid])
+  @@index([teamId])
+  @@index([platform])
+}
+
+// ==================== 内容智能分发 (4.2) ====================
+
+model Content {
+  id          String   @id @default(cuid())
+  teamId      String
+  type        String // video/image_text/dynamic
+  title       String
+  coverUrl    String?
+  videoUrl    String?
+  body        String?  @db.LongText
+  tags        String? // JSON array
+  watermark   String?
+  attachType  String? // cart/poi/website/lead_form
+  attachValue String?
+  source      String   @default("manual") // manual/ai/digital_human/recreation
+  status      String   @default("draft")
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  publishTasks PublishTask[]
+
+  @@index([teamId])
+}
+
+model PublishTask {
+  id          String    @id @default(cuid())
+  teamId      String
+  contentId   String
+  content     Content   @relation(fields: [contentId], references: [id])
+  accountIds  String    @db.LongText // JSON array
+  platforms   String? // JSON array
+  scheduledAt DateTime?
+  status      String    @default("queued") // draft/queued/scheduled/publishing/published/failed
+  queueJobId  String?
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  records PublishRecord[]
+
+  @@index([teamId])
+  @@index([status])
+}
+
+model PublishRecord {
+  id                String          @id @default(cuid())
+  taskId            String
+  task              PublishTask     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  accountId         String
+  account           PlatformAccount @relation(fields: [accountId], references: [id])
+  platform          String
+  status            String          @default("queued") // queued/publishing/published/failed
+  platformContentId String?
+  failReason        String?
+  publishedAt       DateTime?
+  createdAt         DateTime        @default(now())
+
+  @@index([taskId])
+  @@index([accountId])
+}
+
+// ==================== AI 内容创作 (4.3) ====================
+
+model AiRecord {
+  id        String   @id @default(cuid())
+  teamId    String
+  type      String // script/title/tag/teardown/fuse/recreation/reply
+  input     String?  @db.LongText
+  output    String?  @db.LongText
+  model     String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([teamId])
+}
+
+model Material {
+  id        String   @id @default(cuid())
+  teamId    String
+  name      String
+  type      String // video_template/music/image/video
+  category  String? // factory/product/industry/brand
+  url       String
+  thumbnail String?
+  meta      String?  @db.LongText
+  createdAt DateTime @default(now())
+
+  @@index([teamId])
+}
+
+// ==================== 产品信息库 (MVP) ====================
+
+model ProductCategory {
+  id        String    @id @default(cuid())
+  teamId    String
+  name      String
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+model Product {
+  id            String           @id @default(cuid())
+  teamId        String
+  categoryId    String?
+  category      ProductCategory? @relation(fields: [categoryId], references: [id])
+  name          String
+  parameters    String?          @db.LongText // JSON
+  sellingPoints String?          @db.LongText // JSON array
+  scenarios     String?          @db.LongText // JSON array
+  brandScript   String?          @db.LongText // 品牌话术
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  materials ProductMaterial[]
+
+  @@index([teamId])
+}
+
+model ProductMaterial {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String
+  url       String
+}
+
+// ==================== 数字人 IP 引擎 (4.4) ====================
+
+model DigitalHumanAvatar {
+  id        String   @id @default(cuid())
+  teamId    String
+  name      String
+  provider  String // heygen/guiji/zhiying
+  avatarKey String?
+  voiceKey  String?
+  custom    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  ips DigitalHumanIp[]
+}
+
+model DigitalHumanIp {
+  id         String              @id @default(cuid())
+  teamId     String
+  name       String
+  avatarId   String?
+  avatar     DigitalHumanAvatar? @relation(fields: [avatarId], references: [id])
+  provider   String
+  persona    String? // 人设定位
+  videoCount Int                 @default(0)
+  totalPlay  Int                 @default(0)
+  status     String              @default("active")
+  createdAt  DateTime            @default(now())
+
+  tasks DigitalHumanTask[]
+
+  @@index([teamId])
+}
+
+model DigitalHumanTask {
+  id             String         @id @default(cuid())
+  teamId         String
+  ipId           String
+  ip             DigitalHumanIp @relation(fields: [ipId], references: [id])
+  script         String?        @db.LongText
+  background     String? // 工厂车间/展厅/办公室
+  videoUrl       String?
+  status         String         @default("pending") // pending/processing/done/failed
+  provider       String?
+  providerTaskId String?
+  pollAttempts   Int            @default(0)
+  lastPolledAt   DateTime?
+  error          String?        @db.LongText
+  publishTaskId  String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([teamId])
+  @@index([status])
+}
+
+// ==================== GEO 搜索获客 (4.5) ====================
+
+model GeoKeyword {
+  id           String          @id @default(cuid())
+  teamId       String
+  word         String
+  type         String // product/industry/region
+  targetDomain String?         @db.VarChar(253) // 该关键词要追踪的官网域名
+  targetBrand  String?         @db.VarChar(100) // 该关键词要追踪的品牌名
+  status       String          @default("tracking")
+  createdAt    DateTime        @default(now())
+  records      GeoRankRecord[]
+
+  @@index([teamId])
+}
+
+model GeoRankRecord {
+  id               String     @id @default(cuid())
+  keywordId        String
+  keyword          GeoKeyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  engine           String // baidu/360/sogou/bing/deepseek/doubao/ernie/qwen
+  rank             Int? // 未在 checkedDepth 内找到时必须为 null
+  found            Boolean? // 搜索排名是否命中；AI 引用记录为 null
+  checkedDepth     Int? // 本次实际检查的自然搜索结果深度
+  matchedUrl       String?    @db.VarChar(2048)
+  matchedBy        String?    @db.VarChar(16) // domain/brand/both
+  cited            Boolean? // AI 平台是否引用
+  citationRate     Float?
+  citationEvidence Json? // AI 返回的可审计提及与来源证据
+  checkedAt        DateTime   @default(now())
+}
+
+model GeoReport {
+  id        String   @id @default(cuid())
+  teamId    String
+  month     String // YYYY-MM
+  content   String?  @db.LongText
+  fileUrl   String?
+  createdAt DateTime @default(now())
+
+  @@index([teamId])
+}
+
+// ==================== 数据中心 (4.6) ====================
+
+model DataSnapshot {
+  id           String          @id @default(cuid())
+  teamId       String
+  accountId    String
+  account      PlatformAccount @relation(fields: [accountId], references: [id])
+  platform     String
+  date         DateTime
+  playCount    Int             @default(0)
+  readCount    Int             @default(0)
+  fanCount     Int             @default(0)
+  likeCount    Int             @default(0)
+  commentCount Int             @default(0)
+  shareCount   Int             @default(0)
+  revenue      Decimal?        @default(0) @db.Decimal(12, 2)
+  createdAt    DateTime        @default(now())
+
+  @@unique([accountId, date])
+  @@index([teamId, date])
+}
+
+model HotTopic {
+  id        String   @id @default(cuid())
+  platform  String
+  type      String // video/topic/music
+  title     String
+  hotValue  Int
+  rank      Int
+  crawledAt DateTime @default(now())
+}
+
+// ==================== 互动管理与线索闭环 (4.7) ====================
+
+model Comment {
+  id         String          @id @default(cuid())
+  teamId     String
+  accountId  String
+  account    PlatformAccount @relation(fields: [accountId], references: [id])
+  externalId String
+  platform   String
+  contentId  String? // 平台内容ID
+  userName   String
+  userAvatar String?
+  text       String          @db.LongText
+  replyText  String?         @db.LongText
+  replied    Boolean         @default(false)
+  createdAt  DateTime        @default(now())
+
+  @@unique([accountId, externalId])
+  @@index([teamId])
+}
+
+model Message {
+  id         String          @id @default(cuid())
+  teamId     String
+  accountId  String
+  account    PlatformAccount @relation(fields: [accountId], references: [id])
+  externalId String
+  platform   String
+  userName   String
+  text       String          @db.LongText
+  replyText  String?         @db.LongText
+  replied    Boolean         @default(false)
+  createdAt  DateTime        @default(now())
+
+  @@unique([accountId, externalId])
+  @@index([teamId])
+}
+
+model AutoReplyRule {
+  id        String   @id @default(cuid())
+  teamId    String
+  keyword   String
+  reply     String   @db.LongText
+  scope     String   @default("all") // comment/message/all
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([teamId])
+}
+
+model LeadForm {
+  id        String   @id @default(cuid())
+  teamId    String
+  name      String
+  fields    String   @db.LongText // JSON: [{name,label,type,required}]
+  template  String? // consult/visit/quote
+  shareUrl  String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  leads Lead[]
+
+  @@index([teamId])
+}
+
+model Lead {
+  id                 String           @id @default(cuid())
+  teamId             String
+  name               String
+  phone              String
+  company            String?
+  demand             String?          @db.LongText
+  sourcePlatform     String
+  sourceAccountId    String?
+  account            PlatformAccount? @relation(fields: [sourceAccountId], references: [id])
+  sourceContentTitle String?
+  sourceContentId    String?
+  intention          String           @default("medium") // high/medium/low
+  status             String           @default("new") // new/assigned/following/intended/deal/lost
+  tags               String? // JSON array
+  formId             String?
+  form               LeadForm?        @relation(fields: [formId], references: [id])
+  assigneeId         String?
+  assignee           User?            @relation("LeadAssignee", fields: [assigneeId], references: [id])
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  crmProvider        String?
+  crmExternalId      String?
+  crmSyncedAt        DateTime?
+  crmSyncError       String?          @db.LongText
+  estimatedValue     Float            @default(0)
+  dealValue          Float            @default(0)
+  sourceCost         Float            @default(0)
+
+  followUps FollowUpRecord[]
+
+  @@index([teamId])
+  @@index([status])
+}
+
+model LeadAssignment {
+  id         String   @id @default(cuid())
+  leadId     String?
+  assigneeId String?
+  rule       String? // 自动分配规则
+  createdAt  DateTime @default(now())
+}
+
+model FollowUpRecord {
+  id        String    @id @default(cuid())
+  leadId    String
+  lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  content   String    @db.LongText
+  result    String? // 跟进结果
+  nextAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([leadId])
+}
+
+model CrmIntegration {
+  id        String   @id @default(cuid())
+  teamId    String
+  provider  String // fenxi/xiaoshouyi/hongquan
+  config    String?  @db.LongText
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model WebhookConfig {
+  id        String   @id @default(cuid())
+  teamId    String
+  url       String
+  events    String?  @db.LongText // JSON array
+  secret    String?
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// ==================== 团队协作 (4.8) ====================
+
+model ReviewFlow {
+  id            String   @id @default(cuid())
+  teamId        String
+  contentId     String?
+  publishTaskId String?
+  title         String
+  status        String   @default("pending") // pending/approved/rejected/scheduled/publishing/published/failed
+  submitterId   String?
+  reviewerId    String?
+  reviewer      User?    @relation("ReviewReviewer", fields: [reviewerId], references: [id])
+  comment       String?  @db.LongText
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([teamId])
+  @@index([publishTaskId])
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  teamId      String
+  title       String
+  description String?   @db.LongText
+  type        String    @default("creation") // creation/publish/review
+  status      String    @default("todo") // todo/in_progress/done
+  assigneeId  String?
+  assignee    User?     @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creatorId   String?
+  creator     User?     @relation("TaskCreator", fields: [creatorId], references: [id])
+  dueDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([teamId])
+  @@index([assigneeId])
+}
+
+model CalendarEvent {
+  id          String   @id @default(cuid())
+  teamId      String
+  title       String
+  contentId   String?
+  accountIds  String?  @db.LongText
+  platform    String?
+  scheduledAt DateTime
+  status      String   @default("planned")
+  createdAt   DateTime @default(now())
+
+  @@index([teamId, scheduledAt])
+}
+
+model Annotation {
+  id        String   @id @default(cuid())
+  teamId    String
+  contentId String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  text      String   @db.LongText
+  position  String? // JSON
+  createdAt DateTime @default(now())
+
+  @@index([contentId])
+}
+
+// ==================== 智能爆款情报与二创引擎 (4.9) ====================
+
+model PeerAccount {
+  id                            String   @id @default(cuid())
+  teamId                        String
+  platform                      String
+  nickname                      String
+  avatar                        String?
+  followerCount                 Int      @default(0)
+  isBenchmark                   Boolean  @default(false) // 行业标杆库
+  explosiveThresholdPlay        Int      @default(100000)
+  explosiveThresholdLikeRate    Float    @default(0.05)
+  explosiveThresholdCommentRate Float    @default(0.01)
+  createdAt                     DateTime @default(now())
+
+  hitContents HitContent[]
+
+  @@index([teamId])
+}
+
+model HitContent {
+  id            String       @id @default(cuid())
+  teamId        String
+  peerAccountId String?
+  peerAccount   PeerAccount? @relation(fields: [peerAccountId], references: [id])
+  platform      String
+  author        String
+  authorAvatar  String?
+  title         String
+  coverUrl      String?
+  videoUrl      String?
+  playCount     Int          @default(0)
+  likeCount     Int          @default(0)
+  commentCount  Int          @default(0)
+  shareCount    Int          @default(0)
+  collectCount  Int          @default(0)
+  publishedAt   DateTime
+  crawledAt     DateTime     @default(now())
+  isExplosive   Boolean      @default(true)
+  alertPushed   Boolean      @default(false)
+
+  teardown    HitTeardown?
+  recreations RecreationContent[]
+
+  @@index([teamId, crawledAt])
+}
+
+model HitTeardown {
+  id           String     @id @default(cuid())
+  hitContentId String     @unique
+  hitContent   HitContent @relation(fields: [hitContentId], references: [id], onDelete: Cascade)
+  structure    String     @db.LongText // JSON {hook,body,cta}
+  script       String     @db.LongText // JSON {framework,keywords,expressions}
+  emotionCurve String?    @db.LongText // JSON
+  tags         String?    @db.LongText // JSON array
+  music        String?
+  visual       String?    @db.LongText
+  duration     String?
+  report       String?    @db.LongText
+  createdAt    DateTime   @default(now())
+}
+
+model RecreationContent {
+  id               String     @id @default(cuid())
+  teamId           String
+  hitContentId     String
+  hitContent       HitContent @relation(fields: [hitContentId], references: [id])
+  productId        String?
+  version          String // A/B/C/D/E
+  platform         String
+  style            String     @default("professional")
+  title            String
+  body             String     @db.LongText
+  videoUrl         String?
+  coverUrl         String?
+  storyboard       String?    @db.LongText
+  voiceScript      String?    @db.LongText
+  altTitles        String?    @db.LongText // JSON array
+  tags             String?    @db.LongText // JSON array
+  originalityScore Float      @default(0.8) // 原创度 0-1
+  compliancePass   Boolean    @default(true)
+  sensitiveHit     Boolean    @default(false)
+  status           String     @default("draft") // draft/selected/published
+  publishTaskId    String?
+  createdBy        String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  score RecreationScore?
+
+  @@index([teamId])
+  @@index([hitContentId])
+}
+
+model RecreationHistory {
+  id           String   @id @default(cuid())
+  teamId       String
+  recreationId String?
+  snapshot     String?  @db.LongText
+  createdAt    DateTime @default(now())
+}
+
+model RecreationScore {
+  id           String            @id @default(cuid())
+  recreationId String            @unique
+  recreation   RecreationContent @relation(fields: [recreationId], references: [id], onDelete: Cascade)
+  playCount    Int               @default(0)
+  likeCount    Int               @default(0)
+  commentCount Int               @default(0)
+  shareCount   Int               @default(0)
+  score        Float             @default(0)
+  factors      String?           @db.LongText // 各拆解维度与效果的关联
+  computedAt   DateTime          @default(now())
+}
+
+// ==================== 渠道合作体系 (七) ====================
+
+model Channel {
+  id             String   @id @default(cuid())
+  name           String
+  type           String // industrial_park/association
+  contactName    String?
+  contactPhone   String?
+  discountRate   Float    @default(0.5) // 首年折扣
+  commissionRate Float    @default(0.15) // 返佣比例
+  status         String   @default("active")
+  createdAt      DateTime @default(now())
+
+  codes ChannelCode[]
+}
+
+model ChannelCode {
+  id           String   @id @default(cuid())
+  channelId    String
+  channel      Channel  @relation(fields: [channelId], references: [id])
+  code         String   @unique
+  discountRate Float?
+  createdAt    DateTime @default(now())
+
+  customers ChannelCustomer[]
+}
+
+model ChannelCustomer {
+  id         String      @id @default(cuid())
+  codeId     String
+  code       ChannelCode @relation(fields: [codeId], references: [id])
+  teamId     String?
+  teamName   String?
+  paid       Boolean     @default(false)
+  paidAmount Float       @default(0)
+  createdAt  DateTime    @default(now())
+
+  commissions CommissionRecord[]
+}
+
+model CommissionRecord {
+  id         String          @id @default(cuid())
+  customerId String
+  customer   ChannelCustomer @relation(fields: [customerId], references: [id])
+  amount     Float
+  status     String          @default("pending") // pending/settled
+  settledAt  DateTime?
+  createdAt  DateTime        @default(now())
+}
+
+// ==================== 系统 ====================
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  teamId    String?
+  action    String
+  target    String?
+  detail    String?  @db.LongText
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([teamId])
+  @@index([userId])
+}
+
+model SystemSetting {
+  id    String  @id @default(cuid())
+  key   String  @unique
+  value String? @db.LongText
+}
+
+model BackupRecord {
+  id        String   @id @default(cuid())
+  type      String // full/incremental
+  fileUrl   String?
+  size      Float?
+  status    String   @default("success")
+  detail    String?  @db.LongText
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  teamId    String?
+  userId    String?
+  type      String // comment/lead/account_expired/hit_alert
+  title     String
+  content   String?  @db.LongText
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([teamId, userId])
+}

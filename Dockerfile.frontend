@@ -1,0 +1,35 @@
+FROM node:24-alpine AS build
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+# Root postinstall generates Prisma Client; a syntactically valid non-secret
+# datasource is sufficient during the frontend build.
+ENV DATABASE_URL=mysql://prisma:placeholder@127.0.0.1:3306/prisma_build
+RUN corepack enable \
+  && for attempt in 1 2 3 4 5; do \
+    corepack prepare pnpm@11.7.0 --activate && break; \
+    if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+    sleep 5; \
+  done
+RUN for attempt in 1 2 3 4 5; do \
+    apk add --no-cache python3 make g++ openssl && break; \
+    if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+    sleep 5; \
+  done
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/frontend/package.json packages/frontend/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/backend/package.json packages/backend/package.json
+COPY packages/backend/prisma packages/backend/prisma
+COPY packages/shared packages/shared
+# The frontend image does not use Prisma or backend native modules. Skipping
+# lifecycle scripts prevents the root postinstall from downloading a Prisma
+# engine for Alpine; the required frontend/shared builds run explicitly below.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile --ignore-scripts
+COPY packages/frontend packages/frontend
+RUN pnpm --filter @mvms/shared build && pnpm --filter @mvms/frontend build
+
+FROM nginx:1.27-alpine
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/packages/frontend/dist /usr/share/nginx/html
+EXPOSE 80

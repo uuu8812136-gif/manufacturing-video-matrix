@@ -1,0 +1,70 @@
+# Dependencies and generated builds
+node_modules/
+.pnpm-store/
+dist/
+build/
+coverage/
+.next/
+.turbo/
+.vite/
+*.tsbuildinfo
+
+# Local configuration and credentials (templates stay versioned)
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+
+# Databases, backups, caches and logs
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.bak
+*.log
+*.pid
+backups/
+backup/
+__pycache__/
+.pytest_cache/
+.cache/
+
+# Browser state and test output
+.runtime/
+**/.auth/
+**/playwright/.cache/
+**/playwright-report/
+**/e2e-report/
+**/test-results/
+test-artifacts/
+artifacts/
+outputs/
+
+# Generated business media and local uploads
+uploads/
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.avi
+*.wav
+*.mp3
+
+# Local IDE and AI-agent metadata
+.idea/
+.vscode/
+.trae/
+.codex/
+.mcp/
+.mcp.json
+
+# Operating-system and temporary extraction files
+.DS_Store
+._*
+_prd_raw.xml
+_prd_text.txt

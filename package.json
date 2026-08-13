@@ -1,0 +1,38 @@
+{
+  "name": "mfg-video-matrix",
+  "version": "2.1.0",
+  "private": true,
+  "description": "制造业短视频矩阵智能分发系统 - 社媒分发 + GEO搜索获客双引擎 · 数字人IP · 智能爆款二创",
+  "scripts": {
+    "postinstall": "pnpm --filter @mvms/backend prisma:generate && pnpm --filter @mvms/shared build",
+    "dev": "concurrently -n backend,frontend -c blue,green \"pnpm --filter @mvms/backend dev\" \"pnpm --filter @mvms/frontend dev\"",
+    "dev:backend": "pnpm --filter @mvms/backend dev",
+    "dev:frontend": "pnpm --filter @mvms/frontend dev",
+    "build": "pnpm --filter @mvms/backend prisma:generate && pnpm --filter @mvms/shared build && pnpm --filter @mvms/backend build && pnpm --filter @mvms/frontend build",
+    "db:up": "sh scripts/host-browser-bridge.sh start && docker compose up -d",
+    "db:down": "docker compose down && sh scripts/host-browser-bridge.sh stop",
+    "db:migrate": "pnpm --filter @mvms/backend prisma:migrate",
+    "db:deploy": "pnpm --filter @mvms/backend prisma:deploy",
+    "db:seed": "pnpm --filter @mvms/backend prisma:seed",
+    "db:studio": "pnpm --filter @mvms/backend prisma:studio",
+    "db:reset": "pnpm --filter @mvms/backend prisma:reset",
+    "deploy:up": "sh scripts/docker-deploy.sh",
+    "deploy:down": "docker compose --profile app down && sh scripts/host-browser-bridge.sh stop",
+    "typecheck": "pnpm --filter @mvms/backend prisma:generate && pnpm --filter @mvms/shared build && pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "e2e:prepare": "sh scripts/prepare-e2e.sh",
+    "e2e": "pnpm e2e:prepare && pnpm --filter @mvms/frontend e2e",
+    "e2e:smoke": "pnpm e2e:prepare && pnpm --filter @mvms/frontend e2e --grep @smoke",
+    "e2e:core": "pnpm e2e:prepare && pnpm --filter @mvms/frontend e2e --grep @core",
+    "e2e:report": "pnpm --filter @mvms/frontend e2e:report"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

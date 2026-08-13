@@ -1,0 +1,65 @@
+FROM node:24-bookworm-slim AS build
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+# Prisma generate validates the datasource syntax but does not connect to it.
+# The real DATABASE_URL is injected only into the runtime container.
+ENV DATABASE_URL=mysql://prisma:placeholder@127.0.0.1:3306/prisma_build
+RUN corepack enable \
+  && for attempt in 1 2 3 4 5; do \
+    corepack prepare pnpm@11.7.0 --activate && break; \
+    if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+    sleep 5; \
+  done
+RUN set -eux; \
+  for attempt in 1 2 3 4 5; do \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
+      && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -f install -y --fix-missing \
+      && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y --fix-missing --no-install-recommends python3 make g++ openssl ca-certificates \
+      && break; \
+    if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+    rm -rf /var/lib/apt/lists/*; \
+    sleep 5; \
+  done; \
+  rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/backend/package.json packages/backend/package.json
+COPY packages/frontend/package.json packages/frontend/package.json
+COPY packages/shared/package.json packages/shared/package.json
+COPY packages/backend/prisma packages/backend/prisma
+COPY packages/shared packages/shared
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile --ignore-scripts
+COPY packages/backend packages/backend
+RUN for attempt in 1 2 3 4 5; do \
+      pnpm --filter @mvms/backend prisma:generate && break; \
+      if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+      sleep 5; \
+    done \
+  && pnpm --filter @mvms/shared build \
+  && pnpm --filter @mvms/backend build
+
+FROM node:24-bookworm-slim AS runtime
+ENV NODE_ENV=production
+RUN set -eux; \
+  for attempt in 1 2 3 4 5; do \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update \
+      && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -f install -y --fix-missing \
+      && apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y --fix-missing --no-install-recommends openssl ca-certificates default-mysql-client \
+      && break; \
+    if [ "$attempt" -eq 5 ]; then exit 1; fi; \
+    rm -rf /var/lib/apt/lists/*; \
+    sleep 5; \
+  done; \
+  rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/packages/backend/node_modules ./packages/backend/node_modules
+COPY --from=build /app/packages/shared/node_modules ./packages/shared/node_modules
+COPY --from=build /app/packages/backend/dist ./packages/backend/dist
+COPY --from=build /app/packages/backend/prisma ./packages/backend/prisma
+COPY --from=build /app/packages/backend/src/config/seed-environment.ts ./packages/backend/src/config/seed-environment.ts
+COPY --from=build /app/packages/backend/package.json ./packages/backend/package.json
+COPY --from=build /app/packages/shared ./packages/shared
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+EXPOSE 3000
+CMD ["sh", "-c", "./packages/backend/node_modules/.bin/prisma migrate deploy --schema=packages/backend/prisma/schema.prisma && (cd packages/backend && TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\",\"moduleResolution\":\"Node\"}' node -r ts-node/register prisma/seed.ts) && node packages/backend/dist/main.js"]

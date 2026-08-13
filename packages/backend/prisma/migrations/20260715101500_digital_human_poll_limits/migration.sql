@@ -1,0 +1,3 @@
+ALTER TABLE `DigitalHumanTask`
+  ADD COLUMN `pollAttempts` INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN `lastPolledAt` DATETIME(3) NULL;

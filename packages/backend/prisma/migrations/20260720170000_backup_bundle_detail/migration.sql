@@ -1,0 +1,3 @@
+ALTER TABLE `BackupRecord`
+  ADD COLUMN `detail` LONGTEXT NULL,
+  MODIFY COLUMN `size` DOUBLE NULL;

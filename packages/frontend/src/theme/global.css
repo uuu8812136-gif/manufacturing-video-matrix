@@ -1,0 +1,73 @@
+@import url('https://rsms.me/inter/inter.css');
+
+:root {
+  --brand-primary: #1a2b4a;
+  --brand-accent: #f59e0b;
+  --brand-bg: #f7f8fa;
+  --brand-text: #0f172a;
+  --brand-text-secondary: #64748b;
+  --brand-border: #e2e8f0;
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--brand-bg);
+  color: var(--brand-text);
+  font-family: 'Inter', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.tnum {
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.4s ease-out both;
+}
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.text-accent {
+  color: var(--brand-accent);
+}
+
+.text-secondary {
+  color: var(--brand-text-secondary);
+}
+
+.ant-card-hoverable:hover {
+  border-color: var(--brand-border) !important;
+}

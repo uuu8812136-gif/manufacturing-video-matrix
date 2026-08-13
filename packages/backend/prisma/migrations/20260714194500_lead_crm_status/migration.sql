@@ -1,0 +1,5 @@
+ALTER TABLE `Lead`
+  ADD COLUMN `crmProvider` VARCHAR(191) NULL,
+  ADD COLUMN `crmExternalId` VARCHAR(191) NULL,
+  ADD COLUMN `crmSyncedAt` DATETIME(3) NULL,
+  ADD COLUMN `crmSyncError` LONGTEXT NULL;

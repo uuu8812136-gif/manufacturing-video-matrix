@@ -1,0 +1,5 @@
+ALTER TABLE `GeoRankRecord`
+  ADD COLUMN `found` BOOLEAN NULL,
+  ADD COLUMN `checkedDepth` INTEGER NULL,
+  ADD COLUMN `matchedUrl` VARCHAR(2048) NULL,
+  ADD COLUMN `matchedBy` VARCHAR(16) NULL;

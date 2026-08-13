@@ -1,0 +1,164 @@
+name: mfg-video-matrix
+
+services:
+  social-browser:
+    profiles: ["app"]
+    build:
+      context: ./services/social-browser
+    container_name: mvms-social-browser
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SYNAPSE_STORAGE_DIR: /data/synapse
+      SYNAPSE_COOKIE_DIR: /data/synapse/cookies
+      # Run Chromium in an Xvfb-backed desktop session. Douyin repeatedly
+      # challenges headless browsers even when Patchright is used.
+      SYNAPSE_PLAYWRIGHT_HEADLESS: "false"
+      SYNAPSE_PLAYWRIGHT_RUNTIME: patchright
+      # 登录时由容器接管宿主机可见 Edge；验证成功后自动关闭该窗口。
+      SYNAPSE_HOST_BROWSER_BRIDGE_URL: "http://host.docker.internal:18082"
+      SOCIAL_BROWSER_URL_REWRITE: "http://localhost:3000=http://backend:3000,http://localhost:9000=http://minio:9000"
+    volumes:
+      - mvms-social-browser-data:/data/synapse
+    ports:
+      # Local diagnostic view of the Xvfb desktop; the application no longer
+      # links to it, and it is never exposed beyond this machine.
+      - "127.0.0.1:6080:6080"
+    shm_size: "1gb"
+    init: true
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "test -S /tmp/.X11-unix/X99 && test -f /tmp/.X99-lock && pid=$$(tr -d ' ' </tmp/.X99-lock) && kill -0 $$pid && curl -fsS http://localhost:6080/vnc.html >/dev/null && curl -fsS http://localhost:8000/health/ready >/dev/null",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  backend:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: mvms-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: mysql://${MYSQL_USER:-mvms}:${MYSQL_PASSWORD:-mvms_pass_2025}@mysql:3306/${MYSQL_DATABASE:-mvms}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-mvms_redis_2025}@redis:6379
+      ES_NODE: http://elasticsearch:9200
+      S3_ENDPOINT: http://minio:9000
+      SOCIAL_BROWSER_URL: http://social-browser:8000
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    depends_on:
+      social-browser:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: mvms-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0
+    container_name: mvms-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mvms_root_2025}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mvms}
+      MYSQL_USER: ${MYSQL_USER:-mvms}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mvms_pass_2025}
+      TZ: Asia/Shanghai
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --default-authentication-plugin=mysql_native_password
+    ports:
+      - "${MYSQL_PORT:-3307}:3306"
+    volumes:
+      - mvms-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: mvms-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-mvms_redis_2025}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - mvms-redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a '${REDIS_PASSWORD:-mvms_redis_2025}' ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: mvms-es
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - cluster.name=mvms-es
+    ports:
+      - "${ES_PORT:-9200}:9200"
+    volumes:
+      - mvms-es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: mvms-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-mvms_minio}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-mvms_minio_2025}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - mvms-minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  mvms-mysql-data:
+  mvms-redis-data:
+  mvms-es-data:
+  mvms-minio-data:
+  mvms-social-browser-data:

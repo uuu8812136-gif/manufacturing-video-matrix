@@ -1,0 +1,7 @@
+fastapi==0.139.0
+uvicorn[standard]==0.51.0
+cryptography==49.0.0
+httpx==0.28.1
+playwright==1.61.0
+patchright==1.61.2
+websockify==0.13.0

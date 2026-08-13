@@ -1,0 +1,4 @@
+ALTER TABLE `RecreationContent`
+  ADD COLUMN `videoUrl` VARCHAR(191) NULL,
+  ADD COLUMN `coverUrl` VARCHAR(191) NULL,
+  ADD COLUMN `tags` LONGTEXT NULL;
